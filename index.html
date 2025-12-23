@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AutoWash Pro & Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+    .fade-in { animation: fadeIn 0.3s ease-in-out; }
+    .slide-in { animation: slideIn 0.3s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+    input, select, button { touch-action: manipulation; }
+    /* Estilos específicos del Tracker */
+    .tracker-card { transition: all 0.2s; }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+
+<body class="bg-slate-100 text-slate-800">
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useMemo, useRef } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { initializeApp } from 'firebase/app';
+    import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+    import { getFirestore, doc, setDoc, addDoc, collection, onSnapshot, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
+
+    // --- ICONOS UNIFICADOS (Estilo SVG) ---
+    const Icons = {
+      Menu: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" x2="21" y1="12" y2="12"/><line x1="3" x2="21" y1="6" y2="6"/><line x1="3" x2="21" y1="18" y2="18"/></svg>,
+      User: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+      Lock: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+      LogOut: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>,
+      Save: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>,
+      Trash2: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>,
+      Calendar: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>,
+      Car: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.91-1.4 2.9A3.7 3.7 0 0 0 2 12v4c.6.4 1 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>,
+      History: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/><path d="M3 3v9h9"/><path d="M12 7v5"/><path d="M16 14l-4-2-4 2"/></svg>,
+      ChevronDown: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>,
+      PlusCircle: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>,
+      Loader: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>,
+      AlertTriangle: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0L2.27 18a2 2 0 0 0 1.73 3h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>,
+      X: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 18 12"/></svg>,
+      Clock: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+      Sparkles: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M9 3v4"/><path d="M3 9h4"/><path d="M3 5h4"/></svg>,
+      Eraser: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>,
+      RotateCcw: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/><path d="M3 3v9h9"/></svg>,
+      Palette: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.093 0-.679.5-1.25 1.125-1.25H16c3.098 0 5.625-2.527 5.625-5.625C21.625 6.273 17.309 2 12 2Z"/></svg>,
+      Dollar: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+      TrendingUp: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>,
+      Check: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+      Cloud: (p) => <svg {...p} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.5 19c0-3.037-2.463-5.5-5.5-5.5S6.5 15.963 6.5 19"/><path d="M20.61 19a5.5 5.5 0 0 0-9.11-6"/><path d="M18.5 13A5.5 5.5 0 0 0 9 12.5"/><path d="M11 10.5a5.5 5.5 0 0 0-11 0"/></svg>
+    };
+
+    // --- DATOS Y CONSTANTES DEL ANOTADOR ---
+    const SIZES = [{id:0,label:'Sedan'},{id:1,label:'Troca'},{id:2,label:'Bitroca'},{id:3,label:'Bitroca2'}];
+    const SERVICES = [{name:'Regular',base:9,step:1},{name:'Cera',base:18,step:3},{name:'Shampoo',base:21,step:3},{name:'Full (Cera+Shampoo)',base:36,step:6},{name:'Clay Wax',base:33,step:3},{name:'Clay Wax Full',base:39,step:15},{name:'Solo Extra / Varios',base:0,step:0}];
+    const COLORS = [{name:"Blanco",hex:"#FFFFFF",border:true},{name:"Negro",hex:"#000000"},{name:"Gris",hex:"#6B7280"},{name:"Plata",hex:"#C0C0C0"},{name:"Gris Mate",hex:"#374151"},{name:"Rojo",hex:"#EF4444"},{name:"Rojo Oscuro",hex:"#7F1D1D"},{name:"Azul",hex:"#3B82F6"},{name:"Azul Oscuro",hex:"#1E3A8A"},{name:"Verde",hex:"#10B981"},{name:"Amarillo",hex:"#EAB308"},{name:"Naranja",hex:"#F97316"},{name:"Beige",hex:"#F5F5DC",border:true},{name:"Marrón",hex:"#78350F"},{name:"Morado",hex:"#9333EA"},{name:"Rosa",hex:"#EC4899"},{name:"Otro",hex:"transparent",border:true,icon:true}];
+    const BRANDS = [{name:'Tesla',slug:'tesla'},{name:'Toyota',slug:'toyota'},{name:'Honda',slug:'honda'},{name:'Nissan',slug:'nissan'},{name:'Ford',slug:'ford'},{name:'Chevrolet',slug:'chevrolet'},{name:'Cadillac',slug:'cadillac'},{name:'Buick',slug:'buick'},{name:'GMC',slug:'generalmotors'},{name:'Ram',slug:'ram'},{name:'Jeep',slug:'jeep'},{name:'Dodge',slug:'dodge'},{name:'Lincoln',slug:'lincoln'},{name:'Porsche',slug:'porsche'},{name:'BMW',slug:'bmw'},{name:'Mercedes',slug:'mercedes'},{name:'Audi',slug:'audi'},{name:'Lexus',slug:'lexus'},{name:'Acura',slug:'acura'},{name:'Infiniti',slug:'infiniti'},{name:'Rivian',slug:'rivian'},{name:'Lucid',slug:'lucid'},{name:'Land Rover',slug:'landrover'},{name:'Jaguar',slug:'jaguar'},{name:'Volvo',slug:'volvo'},{name:'Mini',slug:'mini'},{name:'Aston Martin',slug:'astonmartin'},{name:'Maserati',slug:'maserati'},{name:'Alfa Romeo',slug:'alfaromeo'},{name:'Kia',slug:'kia'},{name:'Hyundai',slug:'hyundai'},{name:'Mazda',slug:'mazda'},{name:'Volkswagen',slug:'volkswagen'},{name:'Subaru',slug:'subaru'},{name:'Mitsubishi',slug:'mitsubishi'},{name:'Fiat',slug:'fiat'},{name:'Lamborghini',slug:'lamborghini'},{name:'Ferrari',slug:'ferrari'},{name:'McLaren',slug:'mclaren'},{name:'Bugatti',slug:'bugatti'},{name:'Rolls-Royce',slug:'rollsroyce'},{name:'Bentley',slug:'bentley'},{name:'Otro',slug:null}];
+
+    const getBrandSlug = (name) => { const found = BRANDS.find(b => b.name === name); return found ? found.slug : null; };
+    const getColorHex = (name) => { const found = COLORS.find(c => c.name === name); return found ? found : { hex: '#ccc', border: true }; };
+    const ColorDot = ({ colorName }) => { const color = getColorHex(colorName); return (<div className={`w-4 h-4 rounded-full shadow-sm flex-shrink-0 ${color.border ? 'border border-gray-300' : ''}`} style={{ backgroundColor: color.hex }} title={colorName}>{color.icon && <span className="flex items-center justify-center w-full h-full text-[8px] text-gray-500">?</span>}</div>); };
+
+    // ==========================================
+    // CONFIGURACIÓN DE FIREBASE
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyCyv1h_L-FxjxcY_Dnj1mOR9ExNf1ePsk0",
+      authDomain: "carwash-pro-c139d.firebaseapp.com",
+      projectId: "carwash-pro-c139d",
+      storageBucket: "carwash-pro-c139d.firebasestorage.app",
+      messagingSenderId: "395477116926",
+      appId: "1:395477116926:web:9c124bcd8d05fe91a182af",
+      measurementId: "G-F5NZK179MQ"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const appId = "autowash-pro-v1";
+
+    // --- COMPONENTES COMUNES
+    const LoginScreen = () => {
+      const [isRegistering, setIsRegistering] = useState(false);
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+      const [loading, setLoading] = useState(false);
+
+      const handleAuth = async (e) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+          if (isRegistering) await createUserWithEmailAndPassword(auth, email, password);
+          else await signInWithEmailAndPassword(auth, email, password);
+        } catch (err) {
+          if(err.code === 'auth/invalid-credential') setError("Datos incorrectos");
+          else if(err.code === 'auth/email-already-in-use') setError("Correo ya registrado");
+          else if(err.code === 'auth/weak-password') setError("Contraseña débil");
+          else setError("Error: " + err.message);
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+          <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm">
+            <div className="flex justify-center mb-6 text-blue-900"><Icons.Car size={60} /></div>
+            <h1 className="text-2xl font-bold text-center mb-2 text-gray-800">AutoWash App</h1>
+            <p className="text-center text-gray-500 mb-6 text-sm">{isRegistering ? 'Crear cuenta' : 'Iniciar sesión'}</p>
+            <form onSubmit={handleAuth} className="space-y-4">
+              <div><label className="block text-xs font-bold text-gray-500 mb-1">CORREO</label><div className="relative"><Icons.User className="absolute left-3 top-2.5 text-gray-400" size={18}/><input type="email" required className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="tu@email.com" value={email} onChange={e=>setEmail(e.target.value)}/></div></div>
+              <div><label className="block text-xs font-bold text-gray-500 mb-1">CONTRASEÑA</label><div className="relative"><Icons.Lock className="absolute left-3 top-2.5 text-gray-400" size={18}/><input type="password" required className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="******" value={password} onChange={e=>setPassword(e.target.value)}/></div></div>
+              {error && <div className="text-red-500 text-xs bg-red-50 p-2 rounded text-center">{error}</div>}
+              <button type="submit" disabled={loading} className="w-full bg-blue-900 text-white py-3 rounded-lg font-bold hover:bg-blue-800 transition shadow-lg disabled:opacity-50">{loading?'...': (isRegistering? 'Registrar': 'Entrar')}</button>
+            </form>
+            <div className="mt-6 text-center border-t pt-4"><button onClick={()=>setIsRegistering(!isRegistering)} className="text-sm text-blue-600 font-semibold hover:underline">{isRegistering? '¿Ya tienes cuenta?' : '¿Nuevo usuario? Crear cuenta'}</button></div>
+          </div>
+        </div>
+      );
+    };
+
+    const BrandSelect = ({ value, onChange }) => {
+      const [isOpen, setIsOpen] = useState(false);
+      const selectedBrand = BRANDS.find(b => b.name === value) || BRANDS[BRANDS.length - 1];
+      return (
+        <div className="relative w-full">
+          <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Marca</label>
+          <button onClick={() => setIsOpen(!isOpen)} className="w-full bg-white border border-gray-300 rounded-md py-2 px-3 flex items-center justify-between shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-left">
+            <div className="flex items-center gap-2">
+              {selectedBrand.slug ? <img src={`https://cdn.simpleicons.org/${selectedBrand.slug}`} alt="" className="w-5 h-5 opacity-70" onError={(e) => e.target.style.display = 'none'} /> : <Icons.Car className="w-5 h-5 text-gray-400" />}
+              <span className="text-gray-800 font-medium">{selectedBrand.name}</span>
+            </div>
+            <Icons.ChevronDown size={16} className="text-gray-400" />
+          </button>
+          {isOpen && (
+            <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
+              {BRANDS.map((brand) => (
+                <div key={brand.name} onClick={() => { onChange(brand.name); setIsOpen(false); }} className="flex items-center gap-3 px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-50 last:border-0">
+                  {brand.slug ? <img src={`https://cdn.simpleicons.org/${brand.slug}`} alt={brand.name} className="w-5 h-5" /> : <Icons.Car size={20} className="text-gray-400" />}
+                  <span className="text-sm text-gray-700">{brand.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // --- APP PRINCIPAL
+    const CarWashApp = () => {
+      const [user, setUser] = useState(null);
+      const [authLoading, setAuthLoading] = useState(true);
+      const [currentView, setCurrentView] = useState('anotador'); 
+      const [isMenuOpen, setIsMenuOpen] = useState(false);
+      const [errorMsg, setErrorMsg] = useState('');
+
+      // --- ESTADOS ANOTADOR
+      const [currentCars, setCurrentCars] = useState([]);
+      const [history, setHistory] = useState([]);
+      const [isSavingAnotador, setIsSavingAnotador] = useState(false);
+      const [confirmClose, setConfirmClose] = useState(false);
+      const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+      const [clearSessionConfirm, setClearSessionConfirm] = useState(false);
+      const [clearHistoryConfirm, setClearHistoryConfirm] = useState(false);
+      const [selectedDay, setSelectedDay] = useState(null);
+      const [formData, setFormData] = useState({ brand: 'Tesla', color: '', sizeId: 0, serviceIndex: 0, hasExtra: false, extraAmount: '', extraNote: '' });
+
+      // --- ESTADOS TRACKER (GANANCIAS)
+      const initialWeekState = [
+        { day: 'Lunes', hours: '', production: '', tips: '' },
+        { day: 'Martes', hours: '', production: '', tips: '' },
+        { day: 'Miércoles', hours: '', production: '', tips: '' },
+        { day: 'Jueves', hours: '', production: '', tips: '' },
+        { day: 'Viernes', hours: '', production: '', tips: '' },
+        { day: 'Sábado', hours: '', production: '', tips: '' },
+        { day: 'Domingo', hours: '', production: '', tips: '' },
+      ];
+      const [currentWeek, setCurrentWeek] = useState(initialWeekState);
+      const [trackerHistory, setTrackerHistory] = useState([]);
+      const [showTrackerHistory, setShowTrackerHistory] = useState(false);
+      const [savingTracker, setSavingTracker] = useState(false);
+      const [modalConfig, setModalConfig] = useState({ isOpen: false, type: null, data: null });
+      const saveTimeoutRef = useRef(null);
+
+      // --- AUTH EFFECT
+      useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+          setUser(currentUser);
+          setAuthLoading(false);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      // --- DATA EFFECTS
+      useEffect(() => {
+        if (!user) { setCurrentCars([]); setHistory([]); setCurrentWeek(initialWeekState); setTrackerHistory([]); return; }
+        
+        // 1. ANOTADOR DATA
+        const unsubCars = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'current_session'), (snap) => { setCurrentCars(snap.exists() ? snap.data().list || [] : []); });
+        const unsubHistory = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'history_records'), (snap) => {
+            const loaded = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            setHistory(loaded.sort((a, b) => new Date(b.isoDate) - new Date(a.isoDate)));
+        });
+
+        // 2. TRACKER DATA (GANANCIAS)
+        const weekRef = doc(db, 'artifacts', appId, 'users', user.uid, 'tracker_data', 'week_status');
+        const weekUnsub = onSnapshot(weekRef, (docSnap) => {
+             if (docSnap.exists()) {
+                 const data = docSnap.data().data;
+                 setCurrentWeek(prev => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
+             }
+        });
+        const historyRef = doc(db, 'artifacts', appId, 'users', user.uid, 'tracker_data', 'history_log');
+        const historyUnsub = onSnapshot(historyRef, (docSnap) => {
+             if (docSnap.exists()) {
+                 const data = docSnap.data().data;
+                 setTrackerHistory(prev => JSON.stringify(prev) !== JSON.stringify(data) ? data : prev);
+             }
+        });
+
+        return () => { unsubCars(); unsubHistory(); weekUnsub(); historyUnsub(); };
+      }, [user?.uid]);
+
+      // --- LOGICA ANOTADOR
+      const currentBasePrice = useMemo(() => { const srv = SERVICES[formData.serviceIndex]; return srv.base + (srv.step * formData.sizeId); }, [formData.sizeId, formData.serviceIndex]);
+      const currentTotalPrice = useMemo(() => { const extra = formData.hasExtra && formData.extraAmount ? parseFloat(formData.extraAmount) : 0; return currentBasePrice + extra; }, [currentBasePrice, formData.hasExtra, formData.extraAmount]);
+      const monthTotal = useMemo(() => { const currMonth = new Date().getMonth(); return history.filter(h => new Date(h.isoDate).getMonth() === currMonth).reduce((acc, h) => acc + h.total, 0) + currentCars.reduce((acc, c) => acc + c.price, 0); }, [history, currentCars]);
+      const groupedHistory = useMemo(() => {
+        const groups = {};
+        const fmt = (d) => d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+        history.forEach(record => {
+          const d = new Date(record.isoDate); d.setHours(0, 0, 0, 0);
+          const day = d.getDay(); const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+          const monday = new Date(d); monday.setDate(diff); const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+          const key = monday.toISOString().split('T')[0];
+          if (!groups[key]) groups[key] = { label: `${fmt(monday)} - ${fmt(sunday)}`, year: monday.getFullYear(), records: [], total: 0 };
+          groups[key].records.push(record); groups[key].total += record.total;
+        });
+        return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
+      }, [history]);
+
+      const handleUpdateList = async (newList) => { if (!user) return; try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'current_session'), { list: newList }); } catch (e) { setErrorMsg("Error al guardar"); } };
+      const handleClearSession = async () => { if (!clearSessionConfirm) { setClearSessionConfirm(true); setTimeout(() => setClearSessionConfirm(false), 3000); return; } await handleUpdateList([]); setClearSessionConfirm(false); };
+      const handleAdd = () => { if (!formData.color) { setErrorMsg("! Falta color"); return; } const extraVal = formData.hasExtra && formData.extraAmount ? parseFloat(formData.extraAmount) : 0; const newCar = { id: Date.now(), brand: formData.brand, color: formData.color, sizeLabel: SIZES[formData.sizeId].label, serviceName: SERVICES[formData.serviceIndex].name, basePrice: currentBasePrice, extraPrice: extraVal, extraLabel: extraVal > 0 ? (formData.extraNote || 'Extra') : '', price: currentTotalPrice, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }; handleUpdateList([newCar, ...currentCars]); setFormData(p => ({ ...p, color: '', hasExtra: false, extraAmount: '', extraNote: '' })); };
+      const handleCloseDay = async () => { if (!currentCars.length) return; if (!confirmClose) { setConfirmClose(true); setTimeout(() => setConfirmClose(false), 3000); return; } if (!user) { setErrorMsg("Sin usuario"); return; } setIsSavingAnotador(true); try { const today = new Date(); await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'history_records'), { createdAt: Date.now(), date: today.toLocaleDateString(), isoDate: today.toISOString(), total: currentCars.reduce((a, c) => a + c.price, 0), carCount: currentCars.length, details: currentCars }); await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'data', 'current_session'), { list: [] }); setConfirmClose(false); } catch (e) { setErrorMsg("Error al cerrar día"); } setIsSavingAnotador(false); };
+
+      // --- LOGICA TRACKER (GANANCIAS)
+      // Guardado automático
+      useEffect(() => {
+        if (!user || !db) return;
+        setSavingTracker(true);
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = setTimeout(async () => {
+            try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'tracker_data', 'week_status'), { data: currentWeek, updatedAt: new Date().toISOString() }); setSavingTracker(false); } catch (e) { console.error(e); setSavingTracker(false); }
+        }, 1000);
+        return () => clearTimeout(saveTimeoutRef.current);
+      }, [currentWeek, user]);
+
+      const saveTrackerHistoryToDb = async (newHistory) => { if (!user) return; try { setSavingTracker(true); await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'tracker_data', 'history_log'), { data: newHistory, updatedAt: new Date().toISOString() }); } catch(e){console.error(e);} setSavingTracker(false); };
+
+      const handleTrackerInput = (index, field, value) => {
+          if (value !== '' && (isNaN(value) || parseFloat(value) < 0)) return;
+          const newWeek = [...currentWeek];
+          newWeek[index][field] = value;
+          setCurrentWeek(newWeek);
+      };
+
+      const totalHours = currentWeek.reduce((acc, day) => acc + (parseFloat(day.hours) || 0), 0);
+      const totalProduction = currentWeek.reduce((acc, day) => acc + (parseFloat(day.production) || 0), 0);
+      const totalTips = currentWeek.reduce((acc, day) => acc + (parseFloat(day.tips) || 0), 0);
+      const hoursValue = totalHours * 10; 
+      const isProductionHigher = totalProduction >= hoursValue;
+      const baseSalary = isProductionHigher ? totalProduction : hoursValue;
+      const totalPay = baseSalary + totalTips;
+      const isOverHours = totalHours > 58;
+
+      const handleConfirmTrackerAction = () => {
+          if (modalConfig.type === 'save') {
+              const newEntry = {
+                  id: Date.now(),
+                  date: new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+                  hours: totalHours, hoursValue: hoursValue, production: totalProduction, tips: totalTips,
+                  winner: isProductionHigher ? 'Producción' : 'Horas', total: totalPay
+              };
+              const newHistory = [newEntry, ...trackerHistory];
+              setTrackerHistory(newHistory);
+              saveTrackerHistoryToDb(newHistory);
+              setCurrentWeek(initialWeekState);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+          } else if (modalConfig.type === 'delete') {
+              const newHistory = trackerHistory.filter(item => item.id !== modalConfig.data);
+              setTrackerHistory(newHistory);
+              saveTrackerHistoryToDb(newHistory);
+          }
+          setModalConfig({ isOpen: false, type: null, data: null });
+      };
+
+      if (authLoading) return <div className="min-h-screen flex items-center justify-center"><Icons.Loader className="animate-spin text-blue-600" /></div>;
+      if (!user) return <LoginScreen />;
+
+      return (
+        <div className="min-h-screen bg-slate-100 text-slate-800 font-sans pb-20 relative overflow-x-hidden">
+          
+          {/* MENU LATERAL */}
+          {isMenuOpen && (
+            <div className="fixed inset-0 z-50 flex">
+              <div className="fixed inset-0 bg-black/50" onClick={() => setIsMenuOpen(false)}></div>
+              <div className="relative w-64 bg-white h-full shadow-2xl p-6 flex flex-col slide-in">
+                <div className="mb-8">
+                  <h2 className="text-xl font-bold text-blue-900 mb-1">AutoWash Pro</h2>
+                  <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                </div>
+                <nav className="flex-1 space-y-2">
+                  <button onClick={() => { setCurrentView('anotador'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${currentView === 'anotador' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-600 hover:bg-gray-100'}`}>
+                    <Icons.Car size={20} /> Anotador Vehículos
+                  </button>
+                  <button onClick={() => { setCurrentView('ganancias'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${currentView === 'ganancias' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-600 hover:bg-gray-100'}`}>
+                    <Icons.Dollar size={20} /> Tracker Ganancias
+                  </button>
+                </nav>
+                <div className="border-t pt-4">
+                  <button onClick={() => signOut(auth)} className="w-full flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 rounded-xl">
+                    <Icons.LogOut size={20} /> Cerrar Sesión
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* HEADER */}
+          <header className="bg-blue-900 text-white shadow-lg sticky top-0 z-20 px-4 py-3 flex justify-between items-center w-full">
+            <div className="flex items-center gap-3">
+              <button onClick={() => setIsMenuOpen(true)} className="p-1 hover:bg-blue-800 rounded">
+                <Icons.Menu size={26} />
+              </button>
+              <div>
+                <h1 className="text-lg font-bold tracking-tight">{currentView === 'anotador' ? 'Anotador' : 'Ganancias'}</h1>
+              </div>
+            </div>
+            {currentView === 'anotador' && (
+              <div className="text-right">
+                <p className="text-[10px] opacity-70 uppercase tracking-wider">Mes</p>
+                <p className="text-lg font-bold text-green-300">${monthTotal}</p>
+              </div>
+            )}
+            {currentView === 'ganancias' && (
+                <div className="text-xs flex items-center gap-1 text-blue-200">
+                    {savingTracker ? <><Icons.Loader size={12} className="animate-spin" /> ...</> : <><Icons.Cloud size={14} /> OK</>}
+                </div>
+            )}
+          </header>
+
+          {errorMsg && <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-gray-800 text-white px-4 py-2 rounded-full shadow-lg text-sm font-bold fade-in flex items-center gap-2">{errorMsg}</div>}
+
+          <main className="max-w-3xl mx-auto px-4 mt-6">
+            
+            {/* ======================= */}
+            {/* VISTA: ANOTADOR         */}
+            {/* ======================= */}
+            {currentView === 'anotador' && (
+              <div className="fade-in">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
+                  <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-4 flex items-center gap-2"><Icons.PlusCircle size={16} /> Nuevo Ingreso</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <BrandSelect value={formData.brand} onChange={(val) => setFormData({...formData, brand: val})} />
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Color</label>
+                      <div className="relative"><Icons.Palette className="absolute left-3 top-2.5 text-gray-400" size={16} /><select className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm appearance-none" value={formData.color} onChange={(e) => setFormData({...formData, color: e.target.value})}><option value="">Seleccionar color...</option>{COLORS.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}</select>{formData.color && <div className="absolute right-8 top-2.5"><ColorDot colorName={formData.color} /></div>}<Icons.ChevronDown size={14} className="absolute right-3 top-3 text-gray-400 pointer-events-none" /></div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div><label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Tamaño</label>{SIZES.map((size) => (<div className="grid grid-cols-1 gap-2" key={size.id}><button onClick={() => setFormData({...formData, sizeId: size.id})} className={`text-sm py-2 px-2 rounded-md border transition-all ${formData.sizeId === size.id ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{size.label}</button></div>))}</div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase">Servicio</label>
+                      <select className="w-full border border-gray-300 rounded-md py-2 px-2 text-sm bg-white mb-2" value={formData.serviceIndex} onChange={(e) => setFormData({...formData, serviceIndex: Number(e.target.value)})}>{SERVICES.map((srv, idx) => <option key={idx} value={idx}>{srv.name}</option>)}</select>
+                      <div className="mt-2">{!formData.hasExtra ? (<button onClick={() => setFormData({...formData, hasExtra: true})} className="text-xs font-bold text-purple-600 flex items-center gap-1 hover:underline"><Icons.PlusCircle size={14} /> Agregar Extra</button>) : (<div className="bg-purple-50 p-2 rounded border border-purple-100 fade-in"><div className="flex justify-between items-center mb-1"><label className="text-[10px] font-bold text-purple-700 uppercase">Detalle Extra</label><button onClick={() => setFormData({...formData, hasExtra: false, extraAmount: '', extraNote: ''})} className="text-purple-400 hover:text-purple-600"><Icons.X size={12}/></button></div><input type="text" placeholder="Ej: Carpetas..." className="w-full border border-purple-200 rounded px-2 py-1 text-xs mb-2 focus:outline-none focus:ring-1 focus:ring-purple-500" value={formData.extraNote} onChange={(e) => setFormData({...formData, extraNote: e.target.value})} /><div className="relative"><span className="absolute left-2 top-1/2 -translate-y-1/2 text-purple-700 font-bold">$</span><input type="number" placeholder="0" className="w-full pl-6 border border-purple-200 rounded px-2 py-1 text-sm font-bold text-purple-900 focus:outline-none focus:ring-1 focus:ring-purple-500" value={formData.extraAmount} onChange={(e) => setFormData({...formData, extraAmount: e.target.value})} /></div></div>)}</div>
+                    </div>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3 text-center mb-4 border border-gray-100 flex justify-between items-center px-6"><span className="text-xs text-gray-500 font-bold uppercase tracking-wider">Total a Cobrar</span><div className="flex items-baseline gap-1"><span className="text-2xl font-extrabold text-blue-800">${currentTotalPrice}</span>{formData.hasExtra && formData.extraAmount > 0 && <span className="text-xs text-purple-600 font-medium">+${formData.extraAmount} extra</span>}</div></div>
+                  <button onClick={handleAdd} disabled={isSavingAnotador} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md flex justify-center gap-2 active:scale-95 transition-transform"><Icons.PlusCircle size={20} /> Agregar Vehículo</button>
+                </div>
+
+                <div className="mb-8">
+                  <div className="flex justify-between items-end mb-3"> <h2 className="text-lg font-bold text-gray-800">Lista del Día</h2> <div className="flex items-center gap-2"> {currentCars.length > 0 && (<button onClick={handleClearSession} className={`text-xs px-2 py-1 rounded flex items-center gap-1 transition-colors ${clearSessionConfirm ? 'bg-red-500 text-white' : 'text-gray-400 hover:bg-gray-200'}`}><Icons.Eraser size={14}/> {clearSessionConfirm ? '¿Seguro?' : 'Limpiar'}</button>)} <span className="text-sm font-medium bg-green-100 text-green-800 px-3 py-1 rounded-full">Total: ${currentCars.reduce((a, c) => a + c.price, 0)}</span> </div> </div>
+                  {!currentCars.length ? 
+                    (<div className="text-center py-10 bg-white rounded-xl border border-dashed border-gray-300 text-gray-400"><Icons.Car size={48} className="mx-auto mb-2 opacity-20" /> <p>Sin vehículos hoy</p></div>) : 
+                    (<div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><ul className="divide-y divide-gray-100">{currentCars.map((car) => {const slug = getBrandSlug(car.brand); return (<li key={car.id} className="p-4 flex justify-between items-center hover:bg-gray-50 relative fade-in"><div className="flex items-center gap-3"><div className="bg-gray-50 p-2 rounded-lg w-12 h-12 flex items-center justify-center border border-gray-100">{slug ? <img src={`https://cdn.simpleicons.org/${slug}`} alt={car.brand} className="w-8 h-8 opacity-80" /> : <Icons.Car size={24} className="text-gray-400" />}</div><div><div className="font-bold text-gray-800 flex items-center gap-2">{car.brand}<span className="text-xs font-normal bg-gray-100 px-1.5 rounded">{car.sizeLabel}</span></div><div className="text-sm text-gray-500 flex items-center gap-2"><ColorDot colorName={car.color} />{car.color}</div><div className="text-[10px] text-gray-400 mt-0.5">{car.serviceName} • {car.timestamp}</div></div></div><div className="flex items-center gap-3 pl-2"><div className="text-right hidden sm:block"><div className="font-bold text-lg text-gray-700">${car.price}</div>{car.extraPrice > 0 && <div className="text-[10px] text-purple-600 flex items-center justify-end gap-1"><Icons.Sparkles size={10}/> {car.extraLabel}</div>}</div>{deleteConfirmId === car.id ? (<div className="flex items-center gap-1 absolute right-2 bg-white shadow-lg p-1 rounded-lg border border-red-100 z-10 fade-in"><button onClick={() => { handleUpdateList(currentCars.filter(c => c.id !== car.id)); setDeleteConfirmId(null); }} className="bg-red-500 hover:bg-red-600 text-white text-xs font-bold px-3 py-2 rounded flex items-center gap-1"><Icons.Trash2 size={14} /> OK</button><button onClick={() => setDeleteConfirmId(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-600 p-2 rounded"><Icons.X size={14} /></button></div>) : (<button onClick={() => setDeleteConfirmId(car.id)} className="text-gray-300 hover:text-red-500 hover:bg-red-50 p-3 rounded-full transition-all"><Icons.Trash2 size={20}/></button>)}</div></li>);})}</ul><div className="p-4 bg-gray-50 border-t border-gray-100"><button onClick={handleCloseDay} disabled={isSavingAnotador} className={`w-full font-medium py-3 rounded-lg flex justify-center gap-2 shadow-sm transition-all ${confirmClose ? 'bg-amber-500 text-white animate-pulse' : 'bg-slate-800 text-white'}`}>{isSavingAnotador ? <Icons.Loader className="animate-spin" size={18} /> : confirmClose ? <><Icons.AlertTriangle size={18} /> Confirmar Cierre</> : <><Icons.Save size={18} /> Cerrar Día y Guardar</>}</button></div></div>)
+                  }
+                </div>
+                
+                {/* Historial Anotador */}
+                <div className="mb-10">
+                    <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-4"><Icons.History size={20} /> Historial Vehículos</h2>
+                    <div className="space-y-3">
+                        {groupedHistory.map(([key, group]) => (<details key={key} className="group bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"><summary className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 list-none"><div className="flex items-center gap-3"><div className="bg-blue-50 text-blue-600 p-2 rounded-lg"><Icons.Calendar size={20} /></div><div><span className="block font-bold text-gray-700 text-sm capitalize">Semana {group.label}</span><span className="text-xs text-gray-500">{group.year} • {group.records.length} días</span></div></div><div className="flex items-center gap-3"><span className="font-bold text-green-600 bg-green-50 px-2 py-1 rounded text-sm border border-green-100">${group.total}</span><Icons.ChevronDown className="text-gray-400 group-open:rotate-180 transition-transform" /></div></summary><div className="border-t border-gray-100 bg-gray-50 p-2 space-y-2">{group.records.map(r => (<div key={r.id} onClick={() => setSelectedDay(r)} className="bg-white p-3 rounded border border-gray-200 flex justify-between items-center text-sm cursor-pointer hover:border-blue-400 hover:shadow-sm"><div><span className="font-semibold text-gray-700 capitalize flex items-center gap-2">{r.date}</span><span className="text-xs text-gray-400">{r.carCount} autos</span></div><span className="font-bold text-gray-700">${r.total}</span></div>))}</div></details>))}
+                    </div>
+                </div>
+              </div>
+            )}
+
+            {/* ======================= */}
+            {/* VISTA: TRACKER GANANCIAS */}
+            {/* ======================= */}
+            {currentView === 'ganancias' && (
+              <div className="fade-in mb-10">
+                {!showTrackerHistory ? (
+                <>
+                {/* Resumen Card */}
+                <div className="bg-white rounded-2xl shadow-xl p-5 border border-slate-200 mb-6 relative">
+                    <div className="text-center mb-4">
+                        <p className="text-slate-500 text-sm uppercase tracking-wider font-semibold">Ganancia Estimada Total</p>
+                        <div className="text-5xl font-black text-green-600 my-2">${totalPay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        <div className="text-xs text-slate-400 bg-slate-100 inline-block px-2 py-1 rounded-lg">Base: ${baseSalary.toFixed(2)} + Tips: ${totalTips.toFixed(2)}</div>
+                    </div>
+                    {isOverHours && (
+                        <div className="mb-4 bg-red-100 border-l-4 border-red-500 text-red-700 p-3 rounded text-sm flex items-start gap-2 animate-pulse">
+                            <Icons.AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                            <div><strong>¡ALERTA!</strong> Has superado las 58 horas. Ten cuidado con el cansancio.</div>
+                        </div>
+                    )}
+                    
+                    {/* Gráfico Competencia */}
+                    <div className="mt-6">
+                        <div className="flex justify-between text-xs font-bold mb-1">
+                            <span className={isProductionHigher ? 'text-slate-400' : 'text-blue-600'}>Horas (${hoursValue.toFixed(0)})</span>
+                            <span className="text-slate-400">VS</span>
+                            <span className={isProductionHigher ? 'text-green-600' : 'text-slate-400'}>Producción (${totalProduction.toFixed(0)})</span>
+                        </div>
+                        <div className="relative h-6 bg-slate-200 rounded-full overflow-hidden flex">
+                            <div className={`h-full transition-all duration-500 flex items-center justify-start pl-2 text-[10px] text-white font-bold ${isProductionHigher ? 'bg-slate-400 opacity-50' : 'bg-blue-600'}`} style={{ width: '50%' }}>{!isProductionHigher && 'GANANDO'}</div>
+                            <div className={`h-full transition-all duration-500 flex items-center justify-end pr-2 text-[10px] text-white font-bold ${isProductionHigher ? 'bg-green-600' : 'bg-slate-400 opacity-50'}`} style={{ width: '50%' }}>{isProductionHigher && 'GANANDO'}</div>
+                            <div className="absolute top-0 bottom-0 left-1/2 w-0.5 bg-white z-10"></div>
+                        </div>
+                        <p className="text-center text-xs text-slate-400 mt-2">{isProductionHigher ? `Tu sueldo base es PRODUCCIÓN (Ganaste por $${(totalProduction - hoursValue).toFixed(2)})` : `Tu sueldo base son las HORAS (Ganaste por $${(hoursValue - totalProduction).toFixed(2)})`}</p>
+                    </div>
+                </div>
+
+                {/* Grid Datos */}
+                <div className="grid grid-cols-3 gap-2 mb-6">
+                    <div className={`p-3 rounded-xl border flex flex-col items-center justify-center text-center ${isOverHours ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
+                        <Icons.Clock className={`w-5 h-5 mb-1 ${isOverHours ? 'text-red-500' : 'text-blue-500'}`} />
+                        <span className="text-xs text-slate-500 font-bold">Horas</span>
+                        <span className="text-lg font-bold text-slate-800">{totalHours.toFixed(1)}</span>
+                    </div>
+                    <div className="p-3 bg-green-50 rounded-xl border border-green-200 flex flex-col items-center justify-center text-center">
+                        <Icons.TrendingUp className="w-5 h-5 text-green-600 mb-1" />
+                        <span className="text-xs text-slate-500 font-bold">Prod.</span>
+                        <span className="text-lg font-bold text-slate-800">${totalProduction}</span>
+                    </div>
+                    <div className="p-3 bg-orange-50 rounded-xl border border-orange-200 flex flex-col items-center justify-center text-center">
+                        <Icons.Dollar className="w-5 h-5 text-orange-500 mb-1" />
+                        <span className="text-xs text-slate-500 font-bold">Tips</span>
+                        <span className="text-lg font-bold text-slate-800">${totalTips}</span>
+                    </div>
+                </div>
+
+                {/* Tabla Input */}
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+                    <div className="grid grid-cols-4 bg-slate-100 p-2 text-xs font-bold text-slate-600 text-center border-b">
+                        <div className="text-left pl-2">Día</div><div>Hrs</div><div>$$ Prod</div><div>$$ Tips</div>
+                    </div>
+                    {currentWeek.map((day, index) => (
+                        <div key={index} className="grid grid-cols-4 border-b last:border-0 items-center p-1 hover:bg-slate-50 transition-colors">
+                            <div className="pl-3 text-sm font-medium text-slate-700">{day.day.substring(0, 3)}</div>
+                            <div className="p-1"><input type="number" placeholder="0" className="w-full text-center bg-blue-50 border border-blue-100 rounded focus:outline-none focus:border-blue-400 text-sm py-1" value={day.hours} onChange={(e) => handleTrackerInput(index, 'hours', e.target.value)} /></div>
+                            <div className="p-1"><input type="number" placeholder="$0" className="w-full text-center bg-green-50 border border-green-100 rounded focus:outline-none focus:border-green-400 text-sm py-1" value={day.production} onChange={(e) => handleTrackerInput(index, 'production', e.target.value)} /></div>
+                            <div className="p-1"><input type="number" placeholder="$0" className="w-full text-center bg-orange-50 border border-orange-100 rounded focus:outline-none focus:border-orange-400 text-sm py-1" value={day.tips} onChange={(e) => handleTrackerInput(index, 'tips', e.target.value)} /></div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Botón Cerrar */}
+                <div className="space-y-3">
+                    <button disabled={totalPay === 0} onClick={() => setModalConfig({ isOpen: true, type: 'save' })} className={`w-full py-4 rounded-xl shadow-lg font-bold text-lg flex items-center justify-center gap-2 transition-all ${totalPay === 0 ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-800 text-white hover:bg-slate-700 active:scale-95'}`}>
+                        <Icons.Save size={20} /> {totalPay === 0 ? 'NO HAY DATOS' : 'CERRAR SEMANA'}
+                    </button>
+                    <button onClick={() => setShowTrackerHistory(true)} className="w-full py-3 text-blue-600 font-medium text-sm hover:underline flex items-center justify-center gap-1">
+                        <Icons.History size={16} /> Ver Historial de Pagos
+                    </button>
+                </div>
+                </>
+                ) : (
+                    /* HISTORIAL TRACKER */
+                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                        <button onClick={() => setShowTrackerHistory(false)} className="mb-2 text-sm text-blue-600 flex items-center gap-1"><Icons.ChevronDown className="rotate-90" size={16}/> Volver a Calculadora</button>
+                        <h3 className="font-bold text-slate-700 flex items-center gap-2 mt-2"><Icons.Calendar size={18} /> Pagos Guardados</h3>
+                        {!trackerHistory.length ? (
+                            <div className="text-center p-8 text-slate-400 bg-white rounded-xl border border-dashed border-slate-300">No hay semanas guardadas aún.</div>
+                        ) : (
+                            <div className="space-y-3">
+                                {trackerHistory.map((item) => (
+                                    <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 relative">
+                                        <button onClick={() => setModalConfig({ isOpen: true, type: 'delete', data: item.id })} className="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition-colors"><Icons.Trash2 size={16} /></button>
+                                        <div className="text-xs text-slate-500 font-bold uppercase mb-1">{item.date}</div>
+                                        <div className="flex justify-between items-end mb-2">
+                                            <div className="text-2xl font-bold text-green-600">${item.total.toLocaleString()}</div>
+                                            <div className="text-xs bg-slate-100 px-2 py-1 rounded text-slate-500">Ganó: <span className="font-bold">{item.winner}</span></div>
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-2 text-xs text-slate-500 pt-2 border-t border-slate-100">
+                                            <div><span className="block font-bold">Horas</span>{item.hours.toFixed(1)} ($ {item.hoursValue})</div>
+                                            <div><span className="block font-bold">Prod.</span>${item.production}</div>
+                                            <div><span className="block font-bold">Tips</span>${item.tips}</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+              </div>
+            )}
+
+            {/* MODALES DETALLE DIARIO (Anotador) */}
+            {selectedDay && currentView === 'anotador' && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm fade-in">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]">
+                        <div className="bg-blue-900 text-white p-4 flex justify-between items-center"><div><h3 className="font-bold text-lg">Detalles</h3><p className="text-blue-200 text-xs">{selectedDay.date}</p></div><button onClick={() => setSelectedDay(null)}><Icons.X size={24} /></button></div>
+                        <div className="overflow-y-auto p-0 flex-1 bg-gray-50"><ul className="divide-y divide-gray-100">{selectedDay.details?.map((c, i) => (<li key={i} className="p-3 bg-white flex justify-between"><div className="flex gap-3"><div className="mt-1 flex-shrink-0">{getBrandSlug(c.brand) ? <img src={`https://cdn.simpleicons.org/${getBrandSlug(c.brand)}`} className="w-5 h-5 opacity-70"/> : <Icons.Car size={16} className="text-gray-400"/>}</div><div><div className="font-bold text-gray-800 text-sm">{c.brand}</div><div className="text-xs text-gray-500 flex items-center gap-1"><ColorDot colorName={c.color} /> {c.color} • {c.sizeLabel}</div><div className="text-xs text-blue-600 font-medium">{c.serviceName}</div></div></div><div className="text-right"><div className="font-bold text-gray-700">${c.price}</div>{c.extraPrice > 0 && <div className="text-[10px] text-purple-600 flex items-center justify-end gap-1"><Icons.Sparkles size={10}/> {c.extraLabel} : +${c.extraPrice}</div>}<div className="text-[10px] text-gray-400 flex items-center justify-end gap-1"><Icons.Clock size={10}/> {c.timestamp}</div></div></li>))}</ul></div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODALES CONFIRMACION (Tracker) */}
+            {modalConfig.isOpen && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+                        <h3 className="text-xl font-bold mb-2 text-slate-800">{modalConfig.type === 'save' ? '¿Cerrar Semana?' : '¿Borrar Registro?'}</h3>
+                        <p className="text-slate-600 mb-6 text-sm leading-relaxed">{modalConfig.type === 'save' ? 'Esto limpiará la tabla actual y guardará tus ganancias. ¿Seguro que terminaste?' : 'Esta acción borrará este registro del historial permanentemente.'}</p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setModalConfig({ isOpen: false, type: null, data: null })} className="flex-1 py-3 bg-slate-100 font-bold text-slate-600 rounded-xl hover:bg-slate-200 flex items-center justify-center gap-2"><Icons.X size={18} /> Cancelar</button>
+                            <button onClick={handleConfirmTrackerAction} className={`flex-1 py-3 font-bold text-white rounded-xl shadow-lg flex items-center justify-center gap-2 ${modalConfig.type === 'save' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-500 hover:bg-red-600'}`}><Icons.Check size={18} /> {modalConfig.type === 'save' ? 'Confirmar' : 'Borrar'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+          </main>
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<CarWashApp />);
+  </script>
+</body>
+</html>
