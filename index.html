@@ -266,9 +266,16 @@ lo<!DOCTYPE html>
 
       // --- LOGICA TRACKER (GANANCIAS)
       // Guardado automático
-      useEffect(() => {
-        if (!user || !db) return;
-        setSavingTracker(true);
+    useEffect(() => {
+    if (!user || !db) return;
+    
+    // ESTA ES LA LINEA NUEVA DE PROTECCION:
+    const todoCero = currentWeek.every(d => d.hours === 0 && d.production === 0 && d.tips === 0);
+    if (todoCero) return;
+
+    setSavingTracker(true);
+    // ...aquí sigue el resto del código igual...
+
         if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = setTimeout(async () => {
             try { await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'tracker_data', 'week_status'), { data: currentWeek, updatedAt: new Date().toISOString() }); setSavingTracker(false); } catch (e) { console.error(e); setSavingTracker(false); }
